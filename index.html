@@ -37,7 +37,7 @@ button{font-weight:bold}button:disabled{opacity:.45}
 const map=L.map('map',{worldCopyJump:true}).setView([30,20],2);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,attribution:'Tiles © Esri'}).addTo(map);
 const $=id=>document.getElementById(id);
-let countries=[], countryLayer=null, selectedA=null,selectedD=null, placing='red', units=[], running=false,last=0,raf=0;
+let countries=[], countryLayer=null, selectedA=null,selectedD=null, placing='red', units=[], running=false,last=0,raf=0, territoryLayer=null, captureCells=[];
 const defs={infantry:{hp:100,damage:1,glyph:'♟',speed:0.00022},tank:{hp:500,damage:5,glyph:'▰',speed:0.00014},missile:{hp:null,damage:10,glyph:'➤',speed:0.00035},fpv:{hp:null,damage:10,glyph:'✦',speed:0.0004}};
 function say(s){$('status').textContent=s}
 function normName(p){return p.ADMIN||p.name||p.NAME||p.name_long||'Country'}
@@ -50,10 +50,82 @@ function fillSelects(){
  syncCountries();
 }
 function getFeature(name){return countries.find(f=>normName(f.properties)===name)}
+
+function pointInRing(pt,ring){
+ let inside=false;const x=pt[0],y=pt[1];
+ for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+  const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+  const hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi+1e-12)+xi);
+  if(hit)inside=!inside;
+ }
+ return inside;
+}
+function pointInFeature(lon,lat,feature){
+ const g=feature.geometry;if(!g)return false;
+ const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+ for(const poly of polys){
+  if(!poly.length||!pointInRing([lon,lat],poly[0]))continue;
+  let hole=false;for(let i=1;i<poly.length;i++)if(pointInRing([lon,lat],poly[i])){hole=true;break}
+  if(!hole)return true;
+ }
+ return false;
+}
+function cellStyle(c){
+ if(c.owner==='red')return {color:'#a91818',weight:0,fillColor:'#c92727',fillOpacity:.48};
+ if(c.owner==='blue')return {color:'#0e4d94',weight:0,fillColor:'#1769c2',fillOpacity:.48};
+ if(c.progress>0)return {color:c.side==='red'?'#ff7777':'#74c8ff',weight:0,fillColor:c.side==='red'?'#ff7777':'#74c8ff',fillOpacity:.62};
+ return {color:'#fff',weight:0,fillColor:'#ffffff',fillOpacity:0};
+}
+function buildTerritory(){
+ if(territoryLayer)territoryLayer.remove();captureCells=[];
+ const a=getFeature(selectedA),b=getFeature(selectedD);if(!a||!b)return;
+ const features=[a,b];let minX=180,minY=90,maxX=-180,maxY=-90;
+ function scan(coords){if(typeof coords[0]==='number'){minX=Math.min(minX,coords[0]);maxX=Math.max(maxX,coords[0]);minY=Math.min(minY,coords[1]);maxY=Math.max(maxY,coords[1]);}else coords.forEach(scan)}
+ features.forEach(f=>scan(f.geometry.coordinates));
+ const area=Math.max(1,(maxX-minX)*(maxY-minY)),step=Math.max(.22,Math.min(2.5,Math.sqrt(area/3500)));
+ const out=[];
+ for(let lat=Math.floor(minY/step)*step;lat<maxY;lat+=step){
+  for(let lon=Math.floor(minX/step)*step;lon<maxX;lon+=step){
+   const cx=lon+step/2,cy=lat+step/2;
+   let owner=null;
+   if(pointInFeature(cx,cy,a))owner='red';
+   else if(pointInFeature(cx,cy,b))owner='blue';
+   if(!owner)continue;
+   const c={lon:cx,lat:cy,owner,side:null,progress:0,layer:null};
+   const idx=captureCells.push(c)-1;
+   out.push({type:'Feature',properties:{idx},geometry:{type:'Polygon',coordinates:[[[lon,lat],[lon+step,lat],[lon+step,lat+step],[lon,lat+step],[lon,lat]]] }});
+  }
+ }
+ territoryLayer=L.geoJSON({type:'FeatureCollection',features:out},{
+  style:f=>cellStyle(captureCells[f.properties.idx]),
+  onEachFeature:(f,l)=>{captureCells[f.properties.idx].layer=l}
+ }).addTo(map);
+}
+function updateCapture(){
+ for(const c of captureCells){
+  let captor=null,near=Infinity;
+  for(const u of units){
+   if(!u.alive)continue;
+   const dx=(u.lng-c.lon)*Math.cos(c.lat*Math.PI/180),dy=u.lat-c.lat;
+   const d=Math.hypot(dx,dy);
+   if(d<.42&&d<near){near=d;captor=u.side}
+  }
+  if(captor&&captor!==c.owner){
+   if(c.side!==captor){c.side=captor;c.progress=0}
+   c.progress=Math.min(1,c.progress+.018);
+   if(c.progress>=1){c.owner=captor;c.side=null;c.progress=0}
+  }else if(c.progress>0){
+   c.progress=Math.max(0,c.progress-.006);
+   if(c.progress===0)c.side=null;
+  }
+  if(c.layer)c.layer.setStyle(cellStyle(c));
+ }
+}
+
 function syncCountries(){
  selectedA=$('attacker').value;selectedD=$('defender').value;
  if(countryLayer)countryLayer.remove();
- countryLayer=L.geoJSON(countries,{style:f=>{let n=normName(f.properties);return {color:'#e8edf4',weight:.7,fillColor:n===selectedA?'#d92727':n===selectedD?'#1769c2':'#111',fillOpacity:n===selectedA||n===selectedD?.38:.015}} ,onEachFeature:(f,l)=>l.on('click',()=>{let n=normName(f.properties);if(n===selectedA||n===selectedD)return;if(!$('attacker').dataset.touched){$('attacker').value=n;$('attacker').dataset.touched='1'}else{$('defender').value=n;$('attacker').dataset.touched=''}syncCountries()})}).addTo(map);
+ countryLayer=L.geoJSON(countries,{style:f=>{let n=normName(f.properties);return {color:'#e8edf4',weight:.7,fillColor:n===selectedA?'#d92727':n===selectedD?'#1769c2':'#111',fillOpacity:(n===selectedA||n===selectedD)? .38 : .015}} ,onEachFeature:(f,l)=>l.on('click',()=>{let n=normName(f.properties);if(n===selectedA||n===selectedD)return;if(!$('attacker').dataset.touched){$('attacker').value=n;$('attacker').dataset.touched='1'}else{$('defender').value=n;$('attacker').dataset.touched=''}syncCountries()})}).addTo(map);
 }
 $('attacker').onchange=syncCountries;$('defender').onchange=syncCountries;
 $('redSide').onclick=()=>{placing='red';say('Tap the map to place RED forces.')};
@@ -95,13 +167,13 @@ function tick(t){
    if(v.hp!==null&&v.hp<=0){v.alive=false;map.removeLayer(v.marker)}
   }
  }
- renderContested();
+ updateCapture();
  if(units.filter(u=>u.alive&&u.hp!==null).length===0){running=false;$('pause').disabled=true;say('War ended: no surviving infantry or tanks.');return}
  raf=requestAnimationFrame(tick);
 }
-$('start').onclick=()=>{if(running)return;running=true;last=0;$('pause').disabled=false;$('pause').textContent='PAUSE';say('War is active. Forces are moving toward the nearest enemy.');raf=requestAnimationFrame(tick)};
+$('start').onclick=()=>{if(running)return;running=true;last=0;$('pause').disabled=false;$('pause').textContent='PAUSE';say('War active. Units capture enemy territory cell by cell. Light colors are contested; dark colors are captured.');raf=requestAnimationFrame(tick)};
 $('pause').onclick=()=>{running=!running;if(running){last=0;$('pause').textContent='PAUSE';raf=requestAnimationFrame(tick)}else{$('pause').textContent='RESUME';cancelAnimationFrame(raf)}};
-$('reset').onclick=()=>{running=false;cancelAnimationFrame(raf);units.forEach(u=>map.removeLayer(u.marker));units=[];clearContested();$('pause').disabled=true;$('pause').textContent='PAUSE';say('Reset. Place forces on the map.');};
-fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson').then(r=>r.json()).then(g=>{countries=g.features;fillSelects();say('Map ready. Choose countries and place forces.')}).catch(()=>say('Could not load country borders. Check your internet connection.'));
+$('reset').onclick=()=>{running=false;cancelAnimationFrame(raf);units.forEach(u=>map.removeLayer(u.marker));units=[];clearContested();buildTerritory();$('pause').disabled=true;$('pause').textContent='PAUSE';say('Reset. Place forces on the map.');};
+fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson').then(r=>r.json()).then(g=>{countries=g.features;fillSelects();say('Map ready. Choose countries and place forces. Territory grid will show captured land during war.')}).catch(()=>say('Could not load country borders. Check your internet connection.'));
 </script>
 </body></html>
