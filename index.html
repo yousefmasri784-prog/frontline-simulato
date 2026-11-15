@@ -1,179 +1,33 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Frontline Simulator</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Frontline Simulator v7</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-*{box-sizing:border-box}html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:#111;color:#fff}
-#map{height:100%;width:100%}
-.panel{position:absolute;z-index:1000;top:10px;left:10px;right:10px;background:#171b22ed;padding:10px;border-radius:12px;max-width:520px;box-shadow:0 3px 16px #0008}
-.row{display:flex;gap:7px;align-items:center;margin:5px 0;flex-wrap:wrap}
-select,button{background:#2b3340;color:white;border:1px solid #596579;border-radius:7px;padding:9px;font-size:14px}
-button{font-weight:bold}button:disabled{opacity:.45}
-.red{color:#ff7777}.blue{color:#79baff}.small{font-size:12px;color:#c5ccd6}
-#status{font-size:12px;color:#d6dde8;margin-top:4px}
-.unit{border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:white;font-size:17px;font-weight:bold;border:2px solid white;box-shadow:0 1px 5px #000}
-.unit.red{background:#c92727}.unit.blue{background:#1769c2}
-.hp{position:absolute;top:-18px;left:50%;transform:translateX(-50%);white-space:nowrap;background:#111d;color:#fff;border-radius:4px;padding:1px 3px;font-size:10px;border:1px solid #ffffff80}
-.leaflet-tooltip{background:#151a22;color:white;border:1px solid #697487}
-@media(max-width:520px){.panel{font-size:13px}.panel select{max-width:130px}button,select{padding:8px}}
-</style>
-</head>
-<body>
-<div id="map"></div>
-<div class="panel">
- <div class="row"><b>FRONTLINE SIMULATOR</b><span class="small">2D real-time prototype</span></div>
- <div class="row"><label class="small">Attacker</label><select id="attacker"></select><label class="small">Defender</label><select id="defender"></select></div>
- <div class="row"><button id="redSide">Place RED</button><button id="blueSide">Place BLUE</button>
- <select id="kind"><option value="infantry">Infantry · 100 HP · 1 DMG</option><option value="tank">Tank · 500 HP · 5 DMG</option><option value="missile">Missile · 10 DMG</option><option value="fpv">FPV · 10 DMG</option></select></div>
- <div class="row"><button id="start">START WAR</button><button id="pause" disabled>PAUSE</button><button id="reset">RESET</button></div>
- <div id="status">Choose two countries, place forces on the map, then start the war. Tap a country to select it.</div>
- <div class="small">Red advances into blue as light red; blue advances into red as light blue. Units move toward enemies and fight when close.</div>
-</div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-const map=L.map('map',{worldCopyJump:true}).setView([30,20],2);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,attribution:'Tiles © Esri'}).addTo(map);
-const $=id=>document.getElementById(id);
-let countries=[], countryLayer=null, selectedA=null,selectedD=null, placing='red', units=[], running=false,last=0,raf=0, territoryLayer=null, captureCells=[];
-const defs={infantry:{hp:100,damage:1,glyph:'♟',speed:0.00022},tank:{hp:500,damage:5,glyph:'▰',speed:0.00014},missile:{hp:null,damage:10,glyph:'➤',speed:0.00035},fpv:{hp:null,damage:10,glyph:'✦',speed:0.0004}};
-function say(s){$('status').textContent=s}
-function normName(p){return p.ADMIN||p.name||p.NAME||p.name_long||'Country'}
-function fillSelects(){
- const names=countries.map(f=>normName(f.properties)).sort();
- for(const id of ['attacker','defender']){$(id).innerHTML='';names.forEach(n=>{let o=document.createElement('option');o.value=o.textContent=n;$(id).appendChild(o)})}
- $('attacker').value='Ukraine';$('defender').value='Russia';
- if(!$('attacker').value) $('attacker').selectedIndex=0;
- if(!$('defender').value) $('defender').selectedIndex=Math.min(1,names.length-1);
- syncCountries();
-}
-function getFeature(name){return countries.find(f=>normName(f.properties)===name)}
-
-function pointInRing(pt,ring){
- let inside=false;const x=pt[0],y=pt[1];
- for(let i=0,j=ring.length-1;i<ring.length;j=i++){
-  const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
-  const hit=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi+1e-12)+xi);
-  if(hit)inside=!inside;
- }
- return inside;
-}
-function pointInFeature(lon,lat,feature){
- const g=feature.geometry;if(!g)return false;
- const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
- for(const poly of polys){
-  if(!poly.length||!pointInRing([lon,lat],poly[0]))continue;
-  let hole=false;for(let i=1;i<poly.length;i++)if(pointInRing([lon,lat],poly[i])){hole=true;break}
-  if(!hole)return true;
- }
- return false;
-}
-function cellStyle(c){
- if(c.owner==='red')return {color:'#a91818',weight:0,fillColor:'#c92727',fillOpacity:.48};
- if(c.owner==='blue')return {color:'#0e4d94',weight:0,fillColor:'#1769c2',fillOpacity:.48};
- if(c.progress>0)return {color:c.side==='red'?'#ff7777':'#74c8ff',weight:0,fillColor:c.side==='red'?'#ff7777':'#74c8ff',fillOpacity:.62};
- return {color:'#fff',weight:0,fillColor:'#ffffff',fillOpacity:0};
-}
-function buildTerritory(){
- if(territoryLayer)territoryLayer.remove();captureCells=[];
- const a=getFeature(selectedA),b=getFeature(selectedD);if(!a||!b)return;
- const features=[a,b];let minX=180,minY=90,maxX=-180,maxY=-90;
- function scan(coords){if(typeof coords[0]==='number'){minX=Math.min(minX,coords[0]);maxX=Math.max(maxX,coords[0]);minY=Math.min(minY,coords[1]);maxY=Math.max(maxY,coords[1]);}else coords.forEach(scan)}
- features.forEach(f=>scan(f.geometry.coordinates));
- const area=Math.max(1,(maxX-minX)*(maxY-minY)),step=Math.max(.22,Math.min(2.5,Math.sqrt(area/3500)));
- const out=[];
- for(let lat=Math.floor(minY/step)*step;lat<maxY;lat+=step){
-  for(let lon=Math.floor(minX/step)*step;lon<maxX;lon+=step){
-   const cx=lon+step/2,cy=lat+step/2;
-   let owner=null;
-   if(pointInFeature(cx,cy,a))owner='red';
-   else if(pointInFeature(cx,cy,b))owner='blue';
-   if(!owner)continue;
-   const c={lon:cx,lat:cy,owner,side:null,progress:0,layer:null};
-   const idx=captureCells.push(c)-1;
-   out.push({type:'Feature',properties:{idx},geometry:{type:'Polygon',coordinates:[[[lon,lat],[lon+step,lat],[lon+step,lat+step],[lon,lat+step],[lon,lat]]] }});
-  }
- }
- territoryLayer=L.geoJSON({type:'FeatureCollection',features:out},{
-  style:f=>cellStyle(captureCells[f.properties.idx]),
-  onEachFeature:(f,l)=>{captureCells[f.properties.idx].layer=l}
- }).addTo(map);
-}
-function updateCapture(){
- for(const c of captureCells){
-  let captor=null,near=Infinity;
-  for(const u of units){
-   if(!u.alive)continue;
-   const dx=(u.lng-c.lon)*Math.cos(c.lat*Math.PI/180),dy=u.lat-c.lat;
-   const d=Math.hypot(dx,dy);
-   if(d<.42&&d<near){near=d;captor=u.side}
-  }
-  if(captor&&captor!==c.owner){
-   if(c.side!==captor){c.side=captor;c.progress=0}
-   c.progress=Math.min(1,c.progress+.018);
-   if(c.progress>=1){c.owner=captor;c.side=null;c.progress=0}
-  }else if(c.progress>0){
-   c.progress=Math.max(0,c.progress-.006);
-   if(c.progress===0)c.side=null;
-  }
-  if(c.layer)c.layer.setStyle(cellStyle(c));
- }
-}
-
-function syncCountries(){
- selectedA=$('attacker').value;selectedD=$('defender').value;
- if(countryLayer)countryLayer.remove();
- countryLayer=L.geoJSON(countries,{style:f=>{let n=normName(f.properties);return {color:'#e8edf4',weight:.7,fillColor:n===selectedA?'#d92727':n===selectedD?'#1769c2':'#111',fillOpacity:(n===selectedA||n===selectedD)? .38 : .015}} ,onEachFeature:(f,l)=>l.on('click',()=>{let n=normName(f.properties);if(n===selectedA||n===selectedD)return;if(!$('attacker').dataset.touched){$('attacker').value=n;$('attacker').dataset.touched='1'}else{$('defender').value=n;$('attacker').dataset.touched=''}syncCountries()})}).addTo(map);
-}
-$('attacker').onchange=syncCountries;$('defender').onchange=syncCountries;
-$('redSide').onclick=()=>{placing='red';say('Tap the map to place RED forces.')};
-$('blueSide').onclick=()=>{placing='blue';say('Tap the map to place BLUE forces.')};
-map.on('click',e=>{if(running)return;addUnit(placing,$('kind').value,e.latlng.lat,e.latlng.lng)});
-function addUnit(side,type,lat,lng){
- const d=defs[type],el=document.createElement('div');el.className='unit '+side;el.innerHTML=(d.hp===null?'<span class="hp">10 DMG</span>':'<span class="hp">'+d.hp+' HP</span>')+d.glyph;
- const icon=L.divIcon({className:'',html:el,iconSize:[30,30],iconAnchor:[15,15]});
- let marker=L.marker([lat,lng],{icon}).addTo(map);
- units.push({side,type,hp:d.hp,lat,lng,marker,used:false,alive:true});
-}
-function nearestEnemy(u){let best=null,dist=Infinity;for(const v of units){if(!v.alive||v.side===u.side)continue;let d=Math.hypot(v.lat-u.lat,v.lng-u.lng);if(d<dist){dist=d;best=v}}return {unit:best,dist}}
-function updateIcon(u){let el=u.marker.getElement();if(!el)return;let hp=el.querySelector('.hp');if(hp&&u.hp!==null)hp.textContent=Math.max(0,Math.ceil(u.hp))+' HP'}
-let contested=[];
-function clearContested(){contested.forEach(x=>x.remove());contested=[]}
-function renderContested(){
- clearContested();
- units.filter(u=>u.alive&&(u.type==='infantry'||u.type==='tank')).forEach(u=>{
-  let c=L.circle([u.lat,u.lng],{radius:u.type==='tank'?9000:5500,color:u.side==='red'?'#ff7777':'#74c8ff',weight:1,fillColor:u.side==='red'?'#ff7777':'#74c8ff',fillOpacity:.19,dashArray:'4 5',interactive:false}).addTo(map);contested.push(c);
- });
-}
-function tick(t){
- if(!running)return;
- const dt=Math.min((t-last)/16.67||1,3);last=t;
- for(const u of units){
-  if(!u.alive)continue;
-  const d=defs[u.type],near=nearestEnemy(u),v=near.unit;
-  if(!v){continue}
-  const range=u.type==='missile'||u.type==='fpv'?.16:.055;
-  if(near.dist>range){
-   const step=d.speed*dt,dist=near.dist||1;
-   u.lat+=(v.lat-u.lat)/dist*step;u.lng+=(v.lng-u.lng)/dist*step;
-   u.marker.setLatLng([u.lat,u.lng]);
-  }else if(u.type==='missile'||u.type==='fpv'){
-   v.hp-=d.damage;u.alive=false;map.removeLayer(u.marker);updateIcon(v);
-   if(v.hp!==null&&v.hp<=0){v.alive=false;map.removeLayer(v.marker)}
-  }else{
-   v.hp-=d.damage;updateIcon(v);
-   if(v.hp!==null&&v.hp<=0){v.alive=false;map.removeLayer(v.marker)}
-  }
- }
- updateCapture();
- if(units.filter(u=>u.alive&&u.hp!==null).length===0){running=false;$('pause').disabled=true;say('War ended: no surviving infantry or tanks.');return}
- raf=requestAnimationFrame(tick);
-}
-$('start').onclick=()=>{if(running)return;running=true;last=0;$('pause').disabled=false;$('pause').textContent='PAUSE';say('War active. Units capture enemy territory cell by cell. Light colors are contested; dark colors are captured.');raf=requestAnimationFrame(tick)};
-$('pause').onclick=()=>{running=!running;if(running){last=0;$('pause').textContent='PAUSE';raf=requestAnimationFrame(tick)}else{$('pause').textContent='RESUME';cancelAnimationFrame(raf)}};
-$('reset').onclick=()=>{running=false;cancelAnimationFrame(raf);units.forEach(u=>map.removeLayer(u.marker));units=[];clearContested();buildTerritory();$('pause').disabled=true;$('pause').textContent='PAUSE';say('Reset. Place forces on the map.');};
-fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson').then(r=>r.json()).then(g=>{countries=g.features;fillSelects();say('Map ready. Choose countries and place forces. Territory grid will show captured land during war.')}).catch(()=>say('Could not load country borders. Check your internet connection.'));
-</script>
-</body></html>
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:Arial,sans-serif;background:#101722;color:#f4f6fa}#app{height:100%;display:flex;flex-direction:column}
+header{padding:10px 12px;background:#182334;display:flex;justify-content:space-between;align-items:center;gap:8px}h1{font-size:17px;margin:0}.sub{font-size:11px;color:#aab7c8;margin-top:3px}
+#map{flex:1;min-height:230px;background:#263444}.panel{background:#182334;padding:9px;display:grid;gap:8px}.controls{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+button,select{background:#293b52;color:white;border:1px solid #52677f;border-radius:8px;padding:9px 10px;font-size:13px}button.active{outline:2px solid white}.small{font-size:11px;color:#aab7c8}.stats{display:flex;justify-content:space-between;font-size:12px}#status{font-size:12px;color:#cbd6e4}.legend{display:flex;gap:10px;font-size:11px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+</style></head><body><div id="app"><header><div><h1>Frontline Simulator <span style="color:#8fc5ff">v7</span></h1><div class="sub">2D real-time battle map</div></div><div class="legend"><span><i class="dot" style="background:#df4545"></i>Red</span><span><i class="dot" style="background:#397fe0"></i>Blue</span><span> - - - Front</span></div></header>
+<div id="map"></div><div class="panel"><div class="controls"><select id="attacker"><option value="">Red country…</option></select><select id="defender"><option value="">Blue country…</option></select><button id="start">Start war</button><button id="pause">Pause</button><button id="reset">Reset</button><select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+<div class="controls"><button data-unit="infantry" class="active">♟ Infantry</button><button data-unit="tank">▣ Tank</button><button data-unit="missile">➤ Missile</button><button data-unit="fpv">✦ FPV</button><span class="small">Choose a force, then tap the map to deploy.</span></div><div class="stats"><span id="redCount">Red forces: 0</span><span id="blueCount">Blue forces: 0</span></div><div id="status">Select two countries, start the war, then deploy forces.</div></div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
+const map=L.map('map').setView([30,15],2);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri'}).addTo(map);
+const borders=L.geoJSON(null,{style:{color:'#e9eef5',weight:1,fillOpacity:0}}).addTo(map);let countryLayers={};const $=id=>document.getElementById(id);
+fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson').then(r=>r.json()).then(g=>{borders.addData(g);g.features.forEach(f=>{let n=f.properties.ADMIN||f.properties.name;if(n)countryLayers[n]=f});Object.keys(countryLayers).sort().forEach(n=>['attacker','defender'].forEach(id=>{let o=document.createElement('option');o.value=n;o.textContent=n;$(id).appendChild(o)}));$('status').textContent='Country borders loaded. Choose the red and blue countries.'}).catch(()=>$('status').textContent='Could not load country borders. Check your internet connection.');
+let selected='infantry',war=false,paused=false,last=0,units=[],frontPts=[],frontLine=null,redArea=null,blueArea=null,contested=null,centers=null,raf=0;
+document.querySelectorAll('[data-unit]').forEach(b=>b.onclick=()=>{selected=b.dataset.unit;document.querySelectorAll('[data-unit]').forEach(x=>x.classList.toggle('active',x===b))});
+function centerOf(n){let f=countryLayers[n];return f?L.geoJSON(f).getBounds().getCenter():null}function lerp(a,b,t){return L.latLng(a.lat+(b.lat-a.lat)*t,a.lng+(b.lng-a.lng)*t)}
+function makeFront(a,b){frontPts=[];for(let i=0;i<=24;i++)frontPts.push(lerp(a,b,i/24));[frontLine,redArea,blueArea,contested].forEach(x=>x&&map.removeLayer(x));frontLine=L.polyline(frontPts,{color:'white',weight:3,dashArray:'8 9'}).addTo(map);updateTerritory()}
+function updateTerritory(){if(!centers)return;let rp=[centers.red,...frontPts],bp=[...frontPts.slice().reverse(),centers.blue];if(redArea)redArea.setLatLngs(rp);else redArea=L.polygon(rp,{stroke:false,fillColor:'#df4545',fillOpacity:.23,interactive:false}).addTo(map);if(blueArea)blueArea.setLatLngs(bp);else blueArea=L.polygon(bp,{stroke:false,fillColor:'#397fe0',fillOpacity:.23,interactive:false}).addTo(map);let rib=frontPts.map((p,i)=>L.latLng(p.lat+(i%2?.07:-.07),p.lng)),poly=[...frontPts,...rib.reverse()];if(contested)contested.setLatLngs(poly);else contested=L.polygon(poly,{stroke:false,fillColor:'#e9edf5',fillOpacity:.1,interactive:false}).addTo(map)}
+function counts(){$('redCount').textContent='Red forces: '+units.filter(u=>u.team==='red').length;$('blueCount').textContent='Blue forces: '+units.filter(u=>u.team==='blue').length}
+function clearUnits(){units.forEach(u=>map.removeLayer(u.marker));units=[];counts()}
+function addUnit(ll,team,type){let c={infantry:{hp:100,damage:1,icon:'♟'},tank:{hp:500,damage:5,icon:'▣'},missile:{hp:1,damage:10,icon:'➤'},fpv:{hp:1,damage:10,icon:'✦'}}[type],color=team==='red'?'#df4545':'#397fe0';let marker=L.marker(ll,{icon:L.divIcon({className:'',html:`<div style="background:${color};border:2px solid white;border-radius:50%;width:31px;height:31px;display:grid;place-items:center;color:white;font-size:17px;box-shadow:0 2px 5px #000">${c.icon}</div>`,iconSize:[31,31],iconAnchor:[15,15]})}).addTo(map);units.push({team,type,hp:c.hp,damage:c.damage,marker,ll:L.latLng(ll.lat,ll.lng)});counts()}
+function startWar(){let an=$('attacker').value,bn=$('defender').value;if(!an||!bn||an===bn){$('status').textContent='Choose two different countries first.';return}let a=centerOf(an),b=centerOf(bn);if(!a||!b){$('status').textContent='Could not find a country center.';return}centers={red:a,blue:b};makeFront(a,b);map.fitBounds(L.latLngBounds(a,b).pad(.25));clearUnits();war=true;paused=false;last=0;$('status').textContent='War started. Tap either side of the dashed line to deploy forces.';cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
+$('start').onclick=startWar;$('pause').onclick=()=>{paused=!paused;$('pause').textContent=paused?'Resume':'Pause';if(!paused){last=0;raf=requestAnimationFrame(loop)}};
+$('reset').onclick=()=>{war=false;paused=true;cancelAnimationFrame(raf);clearUnits();[frontLine,redArea,blueArea,contested].forEach(x=>x&&map.removeLayer(x));frontLine=redArea=blueArea=contested=null;frontPts=[];$('status').textContent='Battle reset.'};
+map.on('click',e=>{if(!war)return;addUnit(e.latlng,e.latlng.distanceTo(centers.red)<e.latlng.distanceTo(centers.blue)?'red':'blue',selected)});
+function loop(ts){if(!war||paused)return;let dt=last?Math.min((ts-last)/1000,.08):0;last=ts;dt*=Number($('speed').value);
+frontPts=frontPts.map((p,i)=>{let push=0;units.forEach(u=>{let d=map.distance(p,u.ll);if(d<180000)push+=(u.team==='red'?1:-1)*(1-d/180000)*(u.type==='tank'?1.5:1)});let smooth=i>0&&i<frontPts.length-1?(frontPts[i-1].lat+frontPts[i+1].lat)/2-p.lat:0;return L.latLng(p.lat+push*dt*.012+smooth*.035,p.lng)});
+units.forEach(u=>{let target=null,best=Infinity;units.forEach(v=>{if(v.team!==u.team){let d=map.distance(u.ll,v.ll);if(d<best){best=d;target=v.ll}}});if(!target)frontPts.forEach(p=>{let d=map.distance(u.ll,p);if(d<best){best=d;target=p}});if(target&&best>3500){let step=Math.min(best,70000*dt);u.ll=lerp(u.ll,target,best?step/best:0);u.marker.setLatLng(u.ll)}});
+units.forEach(u=>{let enemy=units.find(v=>v.team!==u.team&&map.distance(v.ll,u.ll)<42000);if(enemy){enemy.hp-=u.damage*dt*2;if((u.type==='missile'||u.type==='fpv')&&enemy.hp>0)u.hp=0}});
+units=units.filter(u=>{if(u.hp<=0){map.removeLayer(u.marker);return false}return true});counts();updateTerritory();frontLine.setLatLngs(frontPts);raf=requestAnimationFrame(loop)}
+</script></body></html>
