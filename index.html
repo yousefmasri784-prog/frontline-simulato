@@ -1,146 +1,102 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Frontline Simulator</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Frontline Simulator v9</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-:root{color-scheme:dark;--bg:#11151b;--panel:#1b222c;--muted:#9eabb9}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f7fa;font:14px system-ui,Arial}
-header{padding:10px 12px;background:#171d25;display:flex;align-items:center;justify-content:space-between;gap:8px}
-h1{font-size:17px;margin:0}#status{font-size:11px;color:var(--muted);text-align:right}
-.controls{padding:9px;display:grid;grid-template-columns:1fr 1fr;gap:7px;background:#141a22}
-.panel{background:var(--panel);padding:9px;border-radius:9px;min-width:0}
-label{display:block;color:var(--muted);font-size:11px;margin-bottom:4px}
-select,button{width:100%;border:1px solid #3b4654;background:#242e3a;color:white;border-radius:7px;padding:9px;font-size:13px}
-button{font-weight:650;cursor:pointer}button.primary{background:#276bcb;border-color:#276bcb}button:disabled{opacity:.45}
-.team{display:flex;align-items:center;gap:7px;font-weight:700;font-size:12px;margin-bottom:6px}
-.dot{width:12px;height:12px;border-radius:50%;display:inline-block}.red{background:#ed4545}.blue{background:#347ff0}
-.actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
-#map{height:53vh;min-height:310px;width:100%;background:#202830}
-.bottom{padding:9px;display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.unitbuttons{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
-.unitbuttons button{padding:8px 2px;font-size:11px}
-.small{font-size:11px;color:var(--muted);line-height:1.35}
-#message{padding:7px 10px;color:#ffd27a;font-size:12px;min-height:28px}
-.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);padding:0 10px 8px}
-.unit-icon{border:2px solid white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:white;font-size:15px;font-weight:900;box-shadow:0 1px 5px #000}
-.hp{font-size:10px;color:white;text-shadow:0 1px 3px #000;font-weight:bold;white-space:nowrap}
-@media(min-width:800px){#map{height:58vh}.controls{grid-template-columns:repeat(4,1fr)}.bottom{grid-template-columns:1fr 1fr}}
-</style>
-</head>
-<body>
-<header><h1>Frontline Simulator</h1><div id="status">Loading country map data…</div></header>
-<section class="controls">
- <div class="panel"><div class="team"><span class="dot red"></span> RED / ATTACKER</div><label for="redCountry">Attacker country</label><select id="redCountry"><option>Loading…</option></select></div>
- <div class="panel"><div class="team"><span class="dot blue"></span> BLUE / DEFENDER</div><label for="blueCountry">Defender country</label><select id="blueCountry"><option>Loading…</option></select></div>
- <div class="panel"><label>Deployment team</label><select id="team"><option value="red">RED team</option><option value="blue">BLUE team</option></select><label style="margin-top:7px">Simulation speed</label><select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
- <div class="panel"><label>War controls</label><div class="actions"><button class="primary" id="start">Start</button><button id="pause">Pause</button><button id="reset">Reset</button></div></div>
-</section>
-<div id="map"></div>
-<div id="message">Choose two countries. The map uses the source dataset's country boundaries.</div>
-<div class="bottom">
- <div class="panel"><label>Choose force</label><div class="unitbuttons">
-  <button data-unit="infantry">♟ Infantry</button><button data-unit="tank">▣ Tank</button><button data-unit="missile">➤ Missile</button><button data-unit="fpv">✦ FPV</button>
- </div><div class="small" style="margin-top:6px">Infantry: 100 HP / 1 damage · Tank: 500 HP / 5 damage · Missile and FPV: 10 damage, one-use</div></div>
- <div class="panel"><label>Battlefield key</label><div class="small"><span style="color:#ed5555">● Red</span> attacker · <span style="color:#5594ff">● Blue</span> defender<br>White dashed line: shared border/frontline<br>Tap the map to deploy for the selected team.</div></div>
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:Arial,sans-serif;background:#10151d;color:#fff}
+#app{height:100%;display:flex;flex-direction:column}.top{padding:9px 10px;background:#151d28;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select,button{border:1px solid #465365;border-radius:9px;background:#253244;color:#fff;padding:9px;font-size:14px}
+select{max-width:48%}.teams{display:flex;gap:8px;width:100%;font-weight:bold;font-size:13px}.team{padding:7px 9px;border-radius:8px;flex:1}.red{background:#a92e36}.blue{background:#245eae}
+#map{flex:1;min-height:180px}.panel{padding:9px;background:#151d28;display:flex;flex-direction:column;gap:8px}
+.units,.actions{display:flex;gap:7px;flex-wrap:wrap}.unit{flex:1;min-width:68px}.unit.active{outline:3px solid #fff;background:#53677f}.unit small{display:block;font-size:10px;color:#d5dce5;margin-top:3px}
+button:disabled{opacity:.4}.hint{font-size:12px;color:#c7d0dc;line-height:1.35}.status{font-size:12px;color:#ffd98a;min-height:16px}
+.legend{display:flex;gap:12px;font-size:12px;align-items:center}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px}
+.leaflet-container{background:#18212c}.unit-marker{border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;color:white;font-weight:bold;font-size:15px;box-shadow:0 1px 5px #000}
+@media(min-width:700px){#app{max-width:900px;margin:auto;height:100vh}.top{padding:12px}.panel{padding:12px}}
+</style></head>
+<body><div id="app">
+<div class="top">
+ <strong>FRONTLINE SIMULATOR</strong>
+ <select id="attacker" aria-label="Red attacker country"><option value="Israel">Israel</option><option value="Palestine">Palestine</option><option value="Lebanon">Lebanon</option><option value="Jordan">Jordan</option><option value="Syria">Syria</option><option value="Egypt">Egypt</option></select>
+ <select id="defender" aria-label="Blue defender country"><option value="Palestine">Palestine</option><option value="Israel">Israel</option><option value="Lebanon">Lebanon</option><option value="Jordan">Jordan</option><option value="Syria">Syria</option><option value="Egypt">Egypt</option></select>
+ <div class="teams"><div class="team red" id="redLabel">🔴 RED: Israel</div><div class="team blue" id="blueLabel">🔵 BLUE: Palestine</div></div>
 </div>
-<div class="legend"><span>Country fills show selected teams.</span><span>Contested frontline is a simulation overlay, not a real-time geopolitical border update.</span></div>
+<div id="map"></div>
+<div class="panel">
+ <div class="legend"><span><i class="dot" style="background:#e23c45"></i>Red territory</span><span><i class="dot" style="background:#3988ed"></i>Blue territory</span><span>⚪ Dashed line: verified shared border only</span></div>
+ <div class="units">
+  <button class="unit active" data-unit="infantry">🪖 Infantry<small>100 HP · 1 dmg</small></button>
+  <button class="unit" data-unit="tank">🚜 Tank<small>500 HP · 5 dmg</small></button>
+  <button class="unit" data-unit="missile">🚀 Missile<small>10 damage</small></button>
+  <button class="unit" data-unit="fpv">🛸 FPV<small>10 damage</small></button>
+ </div>
+ <div class="actions">
+  <select id="team"><option value="red">Deploy RED</option><option value="blue">Deploy BLUE</option></select>
+  <select id="speed"><option value="1">1× speed</option><option value="2">2× speed</option><option value="4">4× speed</option></select>
+  <button id="start">Start War</button><button id="pause">Pause</button><button id="reset">Reset</button>
+ </div>
+ <div class="status" id="status">Select a unit, choose a team, then tap the map to deploy.</div>
+ <div class="hint">Map data is used for country outlines. A dashed frontline appears only if the map data contains a verified shared boundary. If the selected countries do not share one, no line is drawn. Tap the map to place units. This prototype does not yet simulate full territorial capture.</div>
+</div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script>
-const map=L.map('map',{zoomControl:true}).setView([31.5,35.1],7);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,attribution:'Tiles © Esri'}).addTo(map);
-L.control.scale({imperial:false}).addTo(map);
-const $=id=>document.getElementById(id);
-let countries=[], redLayer=null, blueLayer=null, frontLayer=null, units=[], selectedUnit='infantry', running=false, tick=null, baseFront=null, warStarted=false;
-const palette={red:'#ed4545',blue:'#347ff0'};
-const nameOf=f=>f.properties.ADMIN||f.properties.name||f.properties.NAME||f.properties.SOVEREIGNT||'Unnamed';
-function featuresOf(g){return (g.features||[]).filter(f=>f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'))}
-function addOptions(){
- const names=countries.map(nameOf).sort((a,b)=>a.localeCompare(b));
- for(const id of ['redCountry','blueCountry']){$(id).innerHTML='';names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;$(id).appendChild(o)})}
- const set=(id,n)=>{const o=[...$(id).options].find(x=>x.value===n);if(o)$(id).value=n};
- set('redCountry','Israel');set('blueCountry','Palestine');if($('redCountry').value===$('blueCountry').value){set('redCountry',names[0]);set('blueCountry',names[1])}
-}
-function feature(n){return countries.find(f=>nameOf(f)===n)}
-function styleCountry(color){return {color:color,weight:2,opacity:1,fillColor:color,fillOpacity:.38}}
-function removeLayer(x){if(x)map.removeLayer(x)}
-function polygonBounds(f){return L.geoJSON(f).getBounds()}
-function findSharedBorder(a,b){
+const map=L.map('map',{zoomControl:true}).setView([31.7,35.1],7);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri'}).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png',{attribution:'Labels © CARTO',opacity:.7}).addTo(map);
+let geo=null, redLayer=null, blueLayer=null, borderLayer=null, selected='infantry', units=[], running=false, timer=null;
+const status=document.getElementById('status');
+const styleRed={color:'#ff5660',weight:2,fillColor:'#e52e3b',fillOpacity:.38};
+const styleBlue={color:'#62a6ff',weight:2,fillColor:'#176bd0',fillOpacity:.4};
+function nameOf(f){const p=f.properties||{};return p.ADMIN||p.name||p.NAME||p.admin||p.NAME_EN||''}
+function norm(s){return String(s||'').toLowerCase().replace(/^the /,'').replace(/[^a-z]/g,'')}
+function findCountry(n){const aliases={palestine:['palestine','stateofpalestine','westbankandgaza'],israel:['israel'],lebanon:['lebanon'],jordan:['jordan'],syria:['syria'],egypt:['egypt']};let opts=aliases[norm(n)]||[norm(n)];return geo.features.find(f=>opts.includes(norm(nameOf(f))))}
+function clearLayers(){[redLayer,blueLayer,borderLayer].forEach(x=>{if(x)map.removeLayer(x)});redLayer=blueLayer=borderLayer=null}
+function sharedBoundary(a,b){
  try{
-  const la=turf.polygonToLine(a), lb=turf.polygonToLine(b);
-  let overlap=turf.lineOverlap(la,lb,{tolerance:0.08});
-  if(!overlap.features.length) overlap=turf.lineOverlap(la,lb,{tolerance:0.25});
-  const lines=[];
-  overlap.features.forEach(f=>{const coords=f.geometry.type==='LineString'?[f.geometry.coordinates]:f.geometry.coordinates;coords.forEach(c=>{if(c.length>1)lines.push(c)})});
-  if(!lines.length)return null;
-  lines.sort((x,y)=>turf.length(turf.lineString(y),{units:'kilometers'})-turf.length(turf.lineString(x),{units:'kilometers'}));
-  return lines[0];
+  const ba=turf.polygonToLine(a), bb=turf.polygonToLine(b);
+  const overlap=turf.lineOverlap(ba,bb,{tolerance:0.03});
+  return overlap.features.length?overlap:null;
  }catch(e){return null}
 }
-function drawCountries(){
- removeLayer(redLayer);removeLayer(blueLayer);removeLayer(frontLayer);baseFront=null;units.forEach(u=>map.removeLayer(u.marker));units=[];
- const r=feature($('redCountry').value), b=feature($('blueCountry').value);
- if(!r||!b||nameOf(r)===nameOf(b)){$('message').textContent='Choose two different countries.';return}
- redLayer=L.geoJSON(r,{style:styleCountry(palette.red)}).addTo(map);
- blueLayer=L.geoJSON(b,{style:styleCountry(palette.blue)}).addTo(map);
- const bounds=redLayer.getBounds().extend(blueLayer.getBounds());map.fitBounds(bounds,{padding:[15,15],maxZoom:9});
- baseFront=findSharedBorder(r,b);
- if(baseFront){
-  frontLayer=L.geoJSON(turf.lineString(baseFront),{style:{color:'#fff',weight:4,dashArray:'8 9',opacity:1}}).addTo(map);
-  $('message').textContent='Shared border found in the map dataset. White dashes mark the simulated frontline.';
+function refreshCountries(){
+ if(!geo)return;clearLayers();
+ const ra=findCountry(document.getElementById('attacker').value), bl=findCountry(document.getElementById('defender').value);
+ document.getElementById('redLabel').textContent='🔴 RED: '+document.getElementById('attacker').value;
+ document.getElementById('blueLabel').textContent='🔵 BLUE: '+document.getElementById('defender').value;
+ if(!ra||!bl){status.textContent='Could not find one of the selected countries in the map dataset.';return}
+ redLayer=L.geoJSON(ra,{style:styleRed}).addTo(map);blueLayer=L.geoJSON(bl,{style:styleBlue}).addTo(map);
+ const bounds=L.featureGroup([redLayer,blueLayer]).getBounds();if(bounds.isValid())map.fitBounds(bounds.pad(.18));
+ const overlap=sharedBoundary(ra,bl);
+ if(overlap&&overlap.features.length){
+   borderLayer=L.geoJSON(overlap,{style:{color:'#fff',weight:4,dashArray:'8 9',opacity:1}}).addTo(map);
+   status.textContent='Shared boundary found in map data. Select a unit and tap the map to deploy.';
  }else{
-  $('message').textContent='No shared border was found in this map dataset. No artificial center-to-center frontline will be drawn.';
+   status.textContent='No verified shared boundary found for these countries. No random frontline will be drawn.';
  }
- $('status').textContent='RED: '+nameOf(r)+'  |  BLUE: '+nameOf(b);
- warStarted=false;running=false;clearInterval(tick);
 }
-function makeIcon(team,kind){
- const glyph={infantry:'♟',tank:'▣',missile:'➤',fpv:'✦'}[kind];
- return L.divIcon({className:'',html:`<div class="unit-icon" style="background:${palette[team]}">${glyph}</div>`,iconSize:[28,28],iconAnchor:[14,14]});
-}
-function deploy(latlng){
- const team=$('team').value, kind=selectedUnit;
- const hp=kind==='infantry'?100:kind==='tank'?500:null, dmg=kind==='infantry'?1:kind==='tank'?5:10;
- const marker=L.marker(latlng,{icon:makeIcon(team,kind)}).addTo(map);
- let label=null;if(hp!==null)label=L.marker([latlng.lat+0.0008,latlng.lng],{interactive:false,icon:L.divIcon({className:'',html:`<div class="hp">${hp} HP</div>`,iconSize:[50,12],iconAnchor:[25,20]})}).addTo(map);
- units.push({team,kind,hp,dmg,marker,label,latlng,alive:true});
- $('message').textContent=`${team.toUpperCase()} ${kind} deployed.`;
-}
-map.on('click',e=>{if(!warStarted){$('message').textContent='Press Start before deploying forces.';return}deploy(e.latlng)});
-document.querySelectorAll('[data-unit]').forEach(btn=>btn.onclick=()=>{selectedUnit=btn.dataset.unit;document.querySelectorAll('[data-unit]').forEach(x=>x.style.outline=x===btn?'2px solid white':'none')});
-function step(){
- if(!baseFront||!frontLayer)return;
- const factor=Number($('speed').value);
- const coords=baseFront.map(c=>c.slice());
- // Local, smooth displacement along the shared border near deployed units.
- const mid=coords.map((c,i)=>({i,p:L.latLng(c[1],c[0])}));
- units.forEach(u=>{
-  if(!u.alive)return;
-  let nearest=mid.reduce((best,x)=>{const d=x.p.distanceTo(u.latlng);return d<best.d?{i:x.i,d}:best},{i:0,d:Infinity});
-  const radius=18000, push=(u.team==='red'?1:-1)*Math.min(0.0015,0.00018*factor*(u.kind==='tank'?2:1));
-  coords.forEach((c,i)=>{const dist=Math.abs(i-nearest.i);const influence=Math.exp(-(dist*dist)/(2*5*5));c[1]+=push*influence});
- });
- frontLayer.setLatLngs(coords.map(c=>[c[1],c[0]]));
- // Unit markers advance slightly toward the opposite side, staying a map simulation.
- units.forEach(u=>{if(!u.alive)return;const sign=u.team==='red'?1:-1;const p=u.marker.getLatLng();u.latlng=L.latLng(p.lat+sign*0.000015*factor,p.lng);u.marker.setLatLng(u.latlng);if(u.label)u.label.setLatLng([u.latlng.lat+0.0008,u.latlng.lng])});
-}
-$('start').onclick=()=>{if($('redCountry').value===$('blueCountry').value){$('message').textContent='Choose two different countries first.';return}warStarted=true;running=true;if(!baseFront){$('message').textContent='War started, but this pair has no shared border in the dataset. Choose adjacent countries to get a frontline.';return}clearInterval(tick);tick=setInterval(step,250);$('message').textContent='War started. Select a force and tap the map to deploy.'};
-$('pause').onclick=()=>{running=false;clearInterval(tick);$('message').textContent='Simulation paused.'};
-$('reset').onclick=()=>drawCountries();
-$('redCountry').onchange=drawCountries;$('blueCountry').onchange=drawCountries;
-$('speed').onchange=()=>{if(running){clearInterval(tick);tick=setInterval(step,250/Number($('speed').value))}};
-async function load(){
- try{
-  const urls=['https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson','https://raw.githubusercontent.com/deldesierto/geojson-world/master/countries.geojson'];
-  let data=null;
-  for(const url of urls){try{const res=await fetch(url);if(res.ok){data=await res.json();break}}catch(e){}}
-  if(!data)throw new Error('Country boundary download failed');
-  countries=featuresOf(data);addOptions();drawCountries();$('status').textContent='Country boundaries loaded';
- }catch(e){$('status').textContent='Map data unavailable';$('message').textContent='Could not load country boundaries. Open this page with an internet connection in Chrome.'}
-}
-load();
-</script>
-</body></html>
+document.getElementById('attacker').onchange=refreshCountries;
+document.getElementById('defender').onchange=refreshCountries;
+document.querySelectorAll('.unit').forEach(btn=>btn.onclick=()=>{
+ document.querySelectorAll('.unit').forEach(b=>b.classList.remove('active'));btn.classList.add('active');selected=btn.dataset.unit;
+ status.textContent='Selected '+selected.toUpperCase()+'. Choose RED or BLUE, then tap the map.';
+});
+function iconFor(type){return ({infantry:'♟',tank:'▣',missile:'➤',fpv:'✦'})[type]||'•'}
+map.on('click',e=>{
+ const team=document.getElementById('team').value, color=team==='red'?'#d92735':'#176bd0';
+ const el=document.createElement('div');el.className='unit-marker';el.style.background=color;el.textContent=iconFor(selected);
+ const marker=L.marker(e.latlng,{icon:L.divIcon({html:el.outerHTML,className:'',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(map);
+ const hp=selected==='infantry'?100:selected==='tank'?500:null;
+ const unit={marker,team,type:selected,hp,damage:selected==='infantry'?1:selected==='tank'?5:10,used:false};
+ units.push(unit);if(hp)marker.bindTooltip(hp+' HP',{permanent:true,direction:'top',offset:[0,-13]});
+ status.textContent=team.toUpperCase()+' '+selected+' deployed.';
+});
+function tick(){if(!running)return;const factor=Number(document.getElementById('speed').value);units.forEach(u=>{if(u.type==='missile'||u.type==='fpv'){if(!u.used){u.used=true;u.marker.setOpacity(.35)}}});}
+document.getElementById('start').onclick=()=>{running=true;if(timer)clearInterval(timer);timer=setInterval(tick,1000/Number(document.getElementById('speed').value));status.textContent='War running. Speed: '+document.getElementById('speed').value+'×.'};
+document.getElementById('pause').onclick=()=>{running=false;if(timer)clearInterval(timer);status.textContent='Paused.'};
+document.getElementById('speed').onchange=()=>{if(running){clearInterval(timer);timer=setInterval(tick,1000/Number(document.getElementById('speed').value));status.textContent='War running. Speed: '+document.getElementById('speed').value+'×.'}};
+document.getElementById('reset').onclick=()=>{running=false;if(timer)clearInterval(timer);units.forEach(u=>map.removeLayer(u.marker));units=[];status.textContent='Reset complete. Select a unit and deploy.'};
+fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson').then(r=>r.json()).then(d=>{geo=d;refreshCountries()}).catch(()=>status.textContent='Could not load country boundary data. Connect to the internet and reload.');
+</script></body></html>
