@@ -39,6 +39,7 @@ const map=L.map('map',{zoomControl:true}).setView([31.7,35.2],7);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri'}).addTo(map);
 const borderLayer=L.layerGroup().addTo(map), countryLayer=L.layerGroup().addTo(map), territoryLayer=L.layerGroup().addTo(map), unitLayer=L.layerGroup().addTo(map), frontLayer=L.layerGroup().addTo(map);
 let geo=null,units=[],selected='Infantry',deploySide='red',running=false,speed=1,last=0,frontPoints=[];
+let captureShift=Array(33).fill(0), battleAxis=null;
 const $=id=>document.getElementById(id);
 function propsName(p){return [p.ADMIN,p.name,p.NAME,p.name_en,p.NAME_EN,p.SOVEREIGNT,p.admin].filter(Boolean).map(x=>String(x).toLowerCase())}
 function matches(f,name){let n=name.toLowerCase();return propsName(f.properties||{}).some(x=>x===n||x.includes(n)||n.includes(x))}
@@ -60,38 +61,69 @@ function renderUnits(){
  });
 }
 function centroid(side){let arr=units.filter(u=>u.side===side);if(!arr.length)return null;return {x:arr.reduce((s,u)=>s+u.lng,0)/arr.length,y:arr.reduce((s,u)=>s+u.lat,0)/arr.length}}
+function makeBattleAxis(){
+ const r=centroid('red'),b=centroid('blue');if(!r||!b)return null;
+ const dx=b.x-r.x,dy=b.y-r.y,dist=Math.max(.0001,Math.hypot(dx,dy));
+ return {mid:{x:(r.x+b.x)/2,y:(r.y+b.y)/2},nx:-dy/dist,ny:dx/dist,
+         tx:dx/dist,ty:dy/dist,span:Math.max(.025,dist*1.15),depth:Math.max(.018,dist*.72)};
+}
 function drawBattlefield(){
  territoryLayer.clearLayers();frontLayer.clearLayers();
- const r=centroid('red'),b=centroid('blue');if(!r||!b||units.length<2)return;
- const mid={x:(r.x+b.x)/2,y:(r.y+b.y)/2};
- const dx=b.x-r.x,dy=b.y-r.y,dist=Math.max(.0001,Math.hypot(dx,dy));
- const nx=-dy/dist,ny=dx/dist,tx=dx/dist,ty=dy/dist;
- const span=Math.max(.025,dist*1.15),depth=Math.max(.018,dist*.72);
+ if(!battleAxis)battleAxis=makeBattleAxis();
+ if(!battleAxis||!units.some(u=>u.side==='red')||!units.some(u=>u.side==='blue'))return;
+ const {mid,nx,ny,tx,ty,span,depth}=battleAxis;
  const samples=[];
  for(let i=0;i<=32;i++){
-  let t=(i/32-.5)*span;
+  const along=(i/32-.5)*span;
   let pressure=0;
   for(const u of units){
-   const along=(u.lng-mid.x)*nx+(u.lat-mid.y)*ny;
    const across=(u.lng-mid.x)*tx+(u.lat-mid.y)*ty;
-   const influence=(u.side==='red'?1:-1)*Math.exp(-Math.pow((along-t)/(span*.13),2))*Math.exp(-Math.pow(across/(depth*.8),2));
-   pressure+=influence*.0035;
+   const length=(u.lng-mid.x)*nx+(u.lat-mid.y)*ny;
+   const influence=(u.side==='red'?1:-1)*
+      Math.exp(-Math.pow((length-along)/(span*.13),2))*
+      Math.exp(-Math.pow(across/(depth*.8),2));
+   pressure+=influence*.002;
   }
-  const wave=Math.sin(i*.47+performance.now()/900)*.00045;
-  const bend=Math.max(-.006,Math.min(.006,pressure));
-  samples.push([mid.y+ny*t+ty*(bend+wave),mid.x+nx*t+tx*(bend+wave)]);
+  const wave=Math.sin(i*.47+performance.now()/900)*.00025;
+  const offset=Math.max(-.012,Math.min(.012,(captureShift[i]||0)+pressure+wave));
+  samples.push([mid.y+ny*along+ty*offset,mid.x+nx*along+tx*offset]);
  }
- // Build a continuous battlefield band; color halves meet at the live frontline.
- const redOuter=samples.map(p=>[p[0]+ty*depth,p[1]+tx*depth]);
- const blueOuter=samples.slice().reverse().map(p=>[p[0]-ty*depth,p[1]-tx*depth]);
- const redPoly=[redOuter[0],...redOuter,...samples.slice().reverse()];
- const bluePoly=[...samples,...blueOuter];
- L.polygon(redPoly,{stroke:false,fillColor:'#e3313b',fillOpacity:.19,interactive:false}).addTo(territoryLayer);
- L.polygon(bluePoly,{stroke:false,fillColor:'#267fe4',fillOpacity:.19,interactive:false}).addTo(territoryLayer);
- L.polyline(samples,{color:'#fff',weight:3,dashArray:'9 9',opacity:.98,lineCap:'butt'}).addTo(frontLayer);
+ const redOuter=samples.map(p=>[p[0]-ty*depth,p[1]-tx*depth]);
+ const blueOuter=samples.map(p=>[p[0]+ty*depth,p[1]+tx*depth]);
+ L.polygon([...redOuter,...samples.slice().reverse()],{
+   stroke:false,fillColor:'#e3313b',fillOpacity:.22,interactive:false
+ }).addTo(territoryLayer);
+ L.polygon([...samples,...blueOuter.slice().reverse()],{
+   stroke:false,fillColor:'#267fe4',fillOpacity:.22,interactive:false
+ }).addTo(territoryLayer);
+ for(let i=0;i<samples.length-1;i++){
+  const shift=((captureShift[i]||0)+(captureShift[i+1]||0))/2;
+  const color=shift<-.00012?'#2788ff':shift>.00012?'#ed343b':'#ffffff';
+  L.polyline([samples[i],samples[i+1]],{
+    color,weight:3,dashArray:'9 9',opacity:1,lineCap:'butt',interactive:false
+  }).addTo(frontLayer);
+ }
+}
+function updateCapture(dt){
+ if(!battleAxis)return;
+ const {mid,nx,ny,tx,ty,span}=battleAxis;
+ for(let i=0;i<captureShift.length;i++){
+  const along=(i/(captureShift.length-1)-.5)*span;
+  let push=0;
+  for(const u of units){
+   const a=(u.lng-mid.x)*nx+(u.lat-mid.y)*ny;
+   const b=(u.lng-mid.x)*tx+(u.lat-mid.y)*ty;
+   const local=Math.exp(-Math.pow((a-along)/(span*.11),2));
+   const currentFront=captureShift[i]||0;
+   if(u.side==='blue' && b<currentFront-.0005)push-=.003*local;
+   if(u.side==='red' && b>currentFront+.0005)push+=.003*local;
+  }
+  captureShift[i]=Math.max(-.012,Math.min(.012,(captureShift[i]||0)+push*dt*speed));
+ }
 }
 function nearestEnemy(u){let best=null,bd=Infinity;for(const v of units){if(v.side===u.side)continue;let d=Math.hypot(v.lat-u.lat,v.lng-u.lng);if(d<bd){bd=d;best=v}}return best}
 function tick(dt){
+ updateCapture(dt);
  for(const u of units){
   const enemy=nearestEnemy(u);if(!enemy)continue;
   const dx=enemy.lng-u.lng,dy=enemy.lat-u.lat,d=Math.hypot(dx,dy);
@@ -115,8 +147,18 @@ map.on('click',e=>{
 document.querySelectorAll('.unit').forEach(b=>b.onclick=()=>{selected=b.dataset.unit;document.querySelectorAll('.unit').forEach(x=>x.classList.toggle('active',x===b))});
 $('side').onclick=()=>{deploySide=deploySide==='red'?'blue':'red';$('side').textContent='Deploy '+deploySide.toUpperCase();$('side').classList.toggle('active',deploySide==='red')};
 $('apply').onclick=()=>{drawCountries();$('status').textContent='Country overlays updated. Deploy forces in the battle area.'};
-$('war').onclick=()=>{running=!running;$('war').textContent=running?'Pause War':'Start War';$('status').textContent=running?'War in progress. Frontline and territorial overlays update as forces advance.':'War paused.';};
+$('war').onclick=()=>{
+ if(!running){
+  if(!units.some(u=>u.side==='red')||!units.some(u=>u.side==='blue')){
+   $('status').textContent='Deploy at least one red and one blue unit first.';return;
+  }
+  battleAxis=makeBattleAxis();captureShift=Array(33).fill(0);running=true;
+ }else{running=false;}
+ $('war').textContent=running?'Pause War':'Start War';
+ $('status').textContent=running?'War in progress. The frontline moves; captured sections turn blue or red.':'War paused.';
+ drawBattlefield();
+};
 document.querySelectorAll('.speed').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('.speed').forEach(x=>x.classList.toggle('active',x===b))});
-$('clear').onclick=()=>{units=[];renderUnits();territoryLayer.clearLayers();frontLayer.clearLayers();running=false;$('war').textContent='Start War';$('status').textContent='Units cleared.'};
+$('clear').onclick=()=>{units=[];captureShift=Array(33).fill(0);battleAxis=null;renderUnits();territoryLayer.clearLayers();frontLayer.clearLayers();running=false;$('war').textContent='Start War';$('status').textContent='Units cleared.'};
 function loop(t){let dt=Math.min(.05,(t-last)/1000||0);last=t;if(running)tick(dt);requestAnimationFrame(loop)}requestAnimationFrame(loop);
 </script></body></html>
