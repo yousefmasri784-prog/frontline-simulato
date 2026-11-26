@@ -14,7 +14,7 @@ button,select{min-height:38px;background:#263447;color:white;border:1px solid #5
 button.active{background:#8c641d;border-color:#f4c65b}button:disabled{opacity:.38}
 .status{font-size:11px;color:#c8d4e1;flex-basis:100%;min-height:14px}
 .legend{position:absolute;z-index:900;top:8px;left:8px;padding:7px 9px;background:#111923e8;border-radius:8px;font-size:11px;line-height:1.5}
-.unit-icon{background:transparent;border:0}.unit-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.unit-icon{background:transparent;border:0}#map.arena-drawing{touch-action:none;cursor:crosshair}#map.arena-drawing .leaflet-container{touch-action:none}.unit-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
 .unit-disc{width:21px;height:21px;border:2px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;box-shadow:0 1px 5px #000a;color:white}
 .unit-disc.red{background:#c93437}.unit-disc.blue{background:#2877c9}
 .hp{width:28px;height:4px;border:1px solid #111;background:#333;border-radius:3px;margin-top:2px;overflow:hidden}.hp>i{display:block;height:100%;background:#79df79}
@@ -78,31 +78,40 @@ function drawArena(bounds){
 }
 document.getElementById('arena').onclick=()=>{
  if(!selected.attacker||!selected.defender){status.textContent='Apply two countries before drawing the battle arena.';return}
- drawing=true;dragStart=null;if(dragRect){dragRect.remove();dragRect=null}if(arenaLayer){arenaLayer.remove();arenaLayer=null}arena=null;
+ drawing=true;activePointer=null;dragStart=null;mapEl.classList.add('arena-drawing');if(dragRect){dragRect.remove();dragRect=null}if(arenaLayer){arenaLayer.remove();arenaLayer=null}arena=null;
  status.textContent='Drag your finger across the map to mark the battle arena, then release.';
  map.dragging.disable();
 };
-map.on('mousedown touchstart',e=>{
- if(!drawing)return;
- dragStart=e.latlng;
- if(dragRect)dragRect.remove();
- dragRect=L.rectangle([dragStart,dragStart],{color:'#f5c84c',weight:3,dashArray:'8 7',fillOpacity:.08}).addTo(map);
-});
-map.on('mousemove touchmove',e=>{
- if(!drawing||!dragStart||!dragRect)return;
- dragRect.setBounds(L.latLngBounds(dragStart,e.latlng));
-});
-map.on('mouseup touchend',e=>{
- if(!drawing||!dragStart)return;
- const ll=e.latlng||map.mouseEventToLatLng(e.originalEvent);
- const bounds=L.latLngBounds(dragStart,ll);
- if(dragRect){dragRect.remove();dragRect=null}
- drawing=false;map.dragging.enable();
- if(bounds.getNorthEast().distanceTo(bounds.getSouthWest())<500){dragStart=null;status.textContent='Arena too small. Drag a larger area.';return}
+const mapEl=map.getContainer();
+let activePointer=null,ignoreNextMapClick=false;
+function pointerLatLng(ev){const rect=mapEl.getBoundingClientRect();return map.containerPointToLatLng(L.point(ev.clientX-rect.left,ev.clientY-rect.top));}
+function finishArenaDrag(ev){
+ if(!drawing||activePointer===null||ev.pointerId!==activePointer)return;
+ ev.preventDefault();
+ const end=pointerLatLng(ev),bounds=L.latLngBounds(dragStart,end);
+ if(dragRect){dragRect.remove();dragRect=null;}
+ drawing=false;activePointer=null;mapEl.classList.remove('arena-drawing');map.dragging.enable();
+ try{mapEl.releasePointerCapture(ev.pointerId)}catch(_e){}
+ ignoreNextMapClick=true;setTimeout(()=>{ignoreNextMapClick=false},350);
+ if(bounds.getNorthEast().distanceTo(bounds.getSouthWest())<500){dragStart=null;status.textContent='Arena too small. Drag a larger area.';return;}
  dragStart=null;drawArena(bounds);frontProgress=0;drawFrontline();
  status.textContent='Battle arena set. Only this area can change ownership during the battle.';
-});
-document.getElementById('clearArena').onclick=()=>{arena=null;if(arenaLayer)arenaLayer.remove();arenaLayer=null;frontLayer.clearLayers();frontProgress=0;status.textContent='Battle arena cleared.'};
+}
+mapEl.addEventListener('pointerdown',ev=>{
+ if(!drawing||activePointer!==null||ev.button!==0)return;
+ ev.preventDefault();activePointer=ev.pointerId;
+ try{mapEl.setPointerCapture(ev.pointerId)}catch(_e){}
+ dragStart=pointerLatLng(ev);
+ if(dragRect)dragRect.remove();
+ dragRect=L.rectangle([dragStart,dragStart],{color:'#f5c84c',weight:3,dashArray:'8 7',fillColor:'#f5c84c',fillOpacity:.12,interactive:false}).addTo(map);
+},{passive:false});
+mapEl.addEventListener('pointermove',ev=>{
+ if(!drawing||activePointer===null||ev.pointerId!==activePointer||!dragStart||!dragRect)return;
+ ev.preventDefault();dragRect.setBounds(L.latLngBounds(dragStart,pointerLatLng(ev)));
+},{passive:false});
+mapEl.addEventListener('pointerup',finishArenaDrag,{passive:false});
+mapEl.addEventListener('pointercancel',finishArenaDrag,{passive:false});
+document.getElementById('clearArena').onclick=()=>{drawing=false;activePointer=null;mapEl.classList.remove('arena-drawing');map.dragging.enable();if(dragRect){dragRect.remove();dragRect=null}dragStart=null;arena=null;if(arenaLayer)arenaLayer.remove();arenaLayer=null;frontLayer.clearLayers();frontProgress=0;status.textContent='Battle arena cleared.'};
 function inside(ll){return arena&&turf.booleanPointInPolygon(turf.point([ll.lng,ll.lat]),arena)}
 function markerIcon(u){
  const z=map.getZoom(),scale=z<=4?.48:z<=6?.62:z<=8?.8:1;
@@ -120,7 +129,7 @@ function spawn(ll,side,type){
  const u={lat:ll.lat,lng:ll.lng,side,type,hp,max:hp,alive:true,marker:null};
  units.push(u);renderUnits();status.textContent=side.toUpperCase()+' '+type+' deployed.';
 }
-map.on('click',e=>{if(drawing)return;if(!running)spawn(e.latlng,deploy,document.getElementById('unit').value)});
+map.on('click',e=>{if(ignoreNextMapClick){ignoreNextMapClick=false;return}if(drawing)return;if(!running)spawn(e.latlng,deploy,document.getElementById('unit').value)});
 document.getElementById('clear').onclick=()=>{units.forEach(u=>u.marker&&u.marker.remove());units=[];renderUnits();status.textContent='All units cleared.'};
 function enemyOf(u){let best=null,bd=Infinity;for(const v of units){if(!v.alive||v.side===u.side||v.type==='Missile'||v.type==='FPV')continue;const d=Math.hypot((v.lat-u.lat)*111,(v.lng-u.lng)*90);if(d<bd){bd=d;best=v}}return best}
 function updateFrontline(dt){
