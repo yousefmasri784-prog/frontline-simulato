@@ -1,164 +1,178 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Frontline Simulator v12</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Frontline Simulator</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:Arial,sans-serif;background:#111;color:#fff}
-#map{position:absolute;inset:0 0 172px 0;background:#18212a}
-#panel{position:absolute;left:0;right:0;bottom:0;height:172px;background:#15191f;padding:8px;display:flex;flex-direction:column;gap:7px;z-index:1000}
-.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-select,button{background:#2a313b;color:white;border:1px solid #596575;border-radius:7px;padding:8px;font-size:13px}
-button.active{background:#176bba;border-color:#7fc5ff}button.go{background:#147a43}button.stop{background:#8c2525}
-.small{font-size:11px;color:#c4ccd5}.unit{font-weight:bold}.leaflet-container{background:#18212a}
-.legend{font-size:11px;color:#ddd}.leaflet-tooltip{background:#101820;color:white;border:1px solid #667}
-</style></head>
+:root{--panel:#151d28;--line:#3a485b;--txt:#edf2f7}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111923;color:var(--txt);font:14px Arial,sans-serif}
+#map{position:absolute;inset:0 0 190px 0;background:#d4d0c5}
+.panel{position:absolute;z-index:1000;bottom:6px;left:6px;right:6px;padding:8px;background:#111923f2;border:1px solid var(--line);border-radius:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+button,select{min-height:38px;background:#263447;color:white;border:1px solid #52647b;border-radius:8px;padding:7px 9px;font-size:12px;flex:1 1 auto}
+button.active{background:#8c641d;border-color:#f4c65b}button:disabled{opacity:.38}
+.status{font-size:11px;color:#c8d4e1;flex-basis:100%;min-height:14px}
+.legend{position:absolute;z-index:900;top:8px;left:8px;padding:7px 9px;background:#111923e8;border-radius:8px;font-size:11px;line-height:1.5}
+.unit-icon{background:transparent;border:0}.unit-wrap{display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.unit-disc{width:21px;height:21px;border:2px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;line-height:1;box-shadow:0 1px 5px #000a;color:white}
+.unit-disc.red{background:#c93437}.unit-disc.blue{background:#2877c9}
+.hp{width:28px;height:4px;border:1px solid #111;background:#333;border-radius:3px;margin-top:2px;overflow:hidden}.hp>i{display:block;height:100%;background:#79df79}
+.unit-name{font-size:9px;font-weight:bold;white-space:nowrap;color:#fff;text-shadow:0 1px 3px #000}
+@media(max-height:680px){#map{bottom:176px}.panel{gap:4px;padding:6px}button,select{min-height:34px;padding:5px 7px;font-size:11px}}
+</style>
+</head>
 <body>
 <div id="map"></div>
-<div id="panel">
- <div class="row">
-  <label>Attacker <select id="attacker"><option>Israel</option><option>Ukraine</option><option>France</option><option>Germany</option><option>United States</option><option>Russia</option><option>Palestine</option></select></label>
-  <label>Defender <select id="defender"><option>Palestine</option><option>Israel</option><option>Russia</option><option>Ukraine</option><option>Germany</option><option>France</option><option>United States</option></select></label>
-  <button id="apply">Apply countries</button>
- </div>
- <div class="row">
-  <button class="unit active" data-unit="Infantry">Infantry</button><button class="unit" data-unit="Tank">Tank</button>
-  <button class="unit" data-unit="Missile">Missile</button><button class="unit" data-unit="FPV">FPV</button>
-  <button id="side" class="active">Deploy RED</button><button id="war" class="go">Start War</button>
- </div>
- <div class="row">
-  <button data-speed="1" class="speed active">1×</button><button data-speed="2" class="speed">2×</button><button data-speed="4" class="speed">4×</button>
-  <button id="clear">Clear units</button><span class="legend">Tap map to deploy. White dashed line = moving frontline.</span>
- </div>
- <div class="small" id="status">Select countries, deploy both sides, then start the war. Units move toward enemies and fight.</div>
+<div class="legend">Political map • muted country colors<br>RED attacker &nbsp; BLUE defender<br>Yellow outline = battle arena<br>White dashed = frontline</div>
+<div class="panel">
+<select id="attacker"><option value="">Choose attacker</option><option>Palestine</option><option>Israel</option><option>Ukraine</option><option>Russia</option><option>France</option><option>Germany</option><option>United States</option><option>China</option><option>Poland</option><option>Belarus</option><option>Lebanon</option><option>Jordan</option><option>Egypt</option><option>Turkey</option></select>
+<select id="defender"><option value="">Choose defender</option><option>Israel</option><option>Palestine</option><option>Russia</option><option>Ukraine</option><option>Germany</option><option>France</option><option>China</option><option>United States</option><option>Belarus</option><option>Poland</option><option>Lebanon</option><option>Jordan</option><option>Egypt</option><option>Turkey</option></select>
+<button id="apply">Apply countries</button><button id="clear">Clear units</button>
+<select id="unit"><option>Infantry</option><option>Tank</option><option>Missile</option><option>FPV</option><option>Artillery</option></select>
+<button id="arena">Draw battle arena</button><button id="clearArena">Clear arena</button>
+<button id="red" class="active">Deploy RED</button><button id="blue">Deploy BLUE</button>
+<button id="war">Start War</button><select id="speed"><option value="1">1× speed</option><option value="2">2× speed</option><option value="4">4× speed</option></select>
+<div class="status" id="status">Choose two countries and press Apply countries. No countries are selected by default.</div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
 <script>
-const map=L.map('map',{zoomControl:true}).setView([31.7,35.2],7);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri'}).addTo(map);
-const borderLayer=L.layerGroup().addTo(map), countryLayer=L.layerGroup().addTo(map), territoryLayer=L.layerGroup().addTo(map), unitLayer=L.layerGroup().addTo(map), frontLayer=L.layerGroup().addTo(map);
-let geo=null,units=[],selected='Infantry',deploySide='red',running=false,speed=1,last=0,frontPoints=[];
-let captureShift=Array(33).fill(0), battleAxis=null;
-const $=id=>document.getElementById(id);
-function propsName(p){return [p.ADMIN,p.name,p.NAME,p.name_en,p.NAME_EN,p.SOVEREIGNT,p.admin].filter(Boolean).map(x=>String(x).toLowerCase())}
-function matches(f,name){let n=name.toLowerCase();return propsName(f.properties||{}).some(x=>x===n||x.includes(n)||n.includes(x))}
-function getCenter(f){return L.geoJSON(f).getBounds().getCenter()}
-function drawCountries(){
- countryLayer.clearLayers(); if(!geo)return;
- const a=$('attacker').value,d=$('defender').value;
- L.geoJSON(geo,{style:f=>({color:'#fff',weight:1.25,opacity:.9,fillColor:matches(f,a)?'#e12d35':matches(f,d)?'#287be0':'#111',fillOpacity:matches(f,a)||matches(f,d)?.32:0})}).addTo(countryLayer);
+const map=L.map('map',{zoomControl:false,attributionControl:false,worldCopyJump:true}).setView([31.5,35.2],5);
+L.control.zoom({position:'topright'}).addTo(map);
+const status=document.getElementById('status');
+const muted=['#b9b39d','#a9b8ad','#c2b5a4','#aab4c0','#c5b9a7','#aeb99e','#b9a9a0','#a9b8b5','#c0b6a0','#aeb0bf','#b7b8a5','#c3ada7','#a6b5a7','#b7adbf'];
+const mapUrl='https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson';
+let features=[],countryLayer=null,selected={},units=[],arena=null,arenaLayer=null,frontLayer=L.layerGroup().addTo(map);
+let drawing=false,dragStart=null,dragRect=null,deploy='red',running=false,last=0,raf=0,frontProgress=0;
+const aliases={'United States':['United States of America','United States'],'Russia':['Russian Federation','Russia'],'Palestine':['Palestine','State of Palestine'],'China':['China','People\'s Republic of China']};
+function featureName(f){let p=f.properties||{};return p.ADMIN||p.name||p.NAME||p.SOVEREIGNT||p.name_en||''}
+function matches(f,n){return (aliases[n]||[n]).some(v=>featureName(f).toLowerCase()===v.toLowerCase())}
+function stableColor(name){let h=0;for(let i=0;i<name.length;i++)h=(h*31+name.charCodeAt(i))>>>0;return muted[h%muted.length]}
+function paintMap(){
+ if(countryLayer)countryLayer.remove();
+ let used={};
+ countryLayer=L.geoJSON(features,{style:f=>{
+  const n=featureName(f),isA=selected.attacker&&matches(f,selected.attacker),isD=selected.defender&&matches(f,selected.defender);
+  let c=stableColor(n);
+  if(isA)c='#bd5552';else if(isD)c='#527fae';
+  return {color:'#65665f',weight:.8,opacity:.95,fillColor:c,fillOpacity:1};
+ },onEachFeature:(f,l)=>{const n=featureName(f);if(n)l.bindTooltip(n,{sticky:true,direction:'center',className:'country-tip'});}});
+ countryLayer.addTo(map);
 }
-fetch('https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson')
-.then(r=>r.json()).then(g=>{geo=g;L.geoJSON(g,{style:{color:'#f2f5f7',weight:1,opacity:.75,fillOpacity:0}}).addTo(borderLayer);drawCountries();})
-.catch(()=>{$('status').textContent='Country borders could not load. Check your internet connection.'});
-function renderUnits(){
- unitLayer.clearLayers();
- units.forEach(u=>{
-  const color=u.side==='red'?'#ed343b':'#2785ef';
-  const marker=L.circleMarker([u.lat,u.lng],{radius:u.type==='Tank'?9:7,color:'#fff',weight:1.5,fillColor:color,fillOpacity:1}).addTo(unitLayer);
-  marker.bindTooltip(u.type+' '+Math.ceil(u.hp)+' HP',{permanent:true,direction:'top',offset:[0,-7]});
- });
-}
-function centroid(side){let arr=units.filter(u=>u.side===side);if(!arr.length)return null;return {x:arr.reduce((s,u)=>s+u.lng,0)/arr.length,y:arr.reduce((s,u)=>s+u.lat,0)/arr.length}}
-function makeBattleAxis(){
- const r=centroid('red'),b=centroid('blue');if(!r||!b)return null;
- const dx=b.x-r.x,dy=b.y-r.y,dist=Math.max(.0001,Math.hypot(dx,dy));
- return {mid:{x:(r.x+b.x)/2,y:(r.y+b.y)/2},nx:-dy/dist,ny:dx/dist,
-         tx:dx/dist,ty:dy/dist,span:Math.max(.025,dist*1.15),depth:Math.max(.018,dist*.72)};
-}
-function drawBattlefield(){
- territoryLayer.clearLayers();frontLayer.clearLayers();
- if(!battleAxis)battleAxis=makeBattleAxis();
- if(!battleAxis||!units.some(u=>u.side==='red')||!units.some(u=>u.side==='blue'))return;
- const {mid,nx,ny,tx,ty,span,depth}=battleAxis;
- const samples=[];
- for(let i=0;i<=32;i++){
-  const along=(i/32-.5)*span;
-  let pressure=0;
-  for(const u of units){
-   const across=(u.lng-mid.x)*tx+(u.lat-mid.y)*ty;
-   const length=(u.lng-mid.x)*nx+(u.lat-mid.y)*ny;
-   const influence=(u.side==='red'?1:-1)*
-      Math.exp(-Math.pow((length-along)/(span*.13),2))*
-      Math.exp(-Math.pow(across/(depth*.8),2));
-   pressure+=influence*.002;
-  }
-  const wave=Math.sin(i*.47+performance.now()/900)*.00025;
-  const offset=Math.max(-.012,Math.min(.012,(captureShift[i]||0)+pressure+wave));
-  samples.push([mid.y+ny*along+ty*offset,mid.x+nx*along+tx*offset]);
- }
- const redOuter=samples.map(p=>[p[0]-ty*depth,p[1]-tx*depth]);
- const blueOuter=samples.map(p=>[p[0]+ty*depth,p[1]+tx*depth]);
- L.polygon([...redOuter,...samples.slice().reverse()],{
-   stroke:false,fillColor:'#e3313b',fillOpacity:.22,interactive:false
- }).addTo(territoryLayer);
- L.polygon([...samples,...blueOuter.slice().reverse()],{
-   stroke:false,fillColor:'#267fe4',fillOpacity:.22,interactive:false
- }).addTo(territoryLayer);
- for(let i=0;i<samples.length-1;i++){
-  const shift=((captureShift[i]||0)+(captureShift[i+1]||0))/2;
-  const color=shift<-.00012?'#2788ff':shift>.00012?'#ed343b':'#ffffff';
-  L.polyline([samples[i],samples[i+1]],{
-    color,weight:3,dashArray:'9 9',opacity:1,lineCap:'butt',interactive:false
-  }).addTo(frontLayer);
- }
-}
-function updateCapture(dt){
- if(!battleAxis)return;
- const {mid,nx,ny,tx,ty,span}=battleAxis;
- for(let i=0;i<captureShift.length;i++){
-  const along=(i/(captureShift.length-1)-.5)*span;
-  let push=0;
-  for(const u of units){
-   const a=(u.lng-mid.x)*nx+(u.lat-mid.y)*ny;
-   const b=(u.lng-mid.x)*tx+(u.lat-mid.y)*ty;
-   const local=Math.exp(-Math.pow((a-along)/(span*.11),2));
-   const currentFront=captureShift[i]||0;
-   if(u.side==='blue' && b<currentFront-.0005)push-=.003*local;
-   if(u.side==='red' && b>currentFront+.0005)push+=.003*local;
-  }
-  captureShift[i]=Math.max(-.012,Math.min(.012,(captureShift[i]||0)+push*dt*speed));
- }
-}
-function nearestEnemy(u){let best=null,bd=Infinity;for(const v of units){if(v.side===u.side)continue;let d=Math.hypot(v.lat-u.lat,v.lng-u.lng);if(d<bd){bd=d;best=v}}return best}
-function tick(dt){
- updateCapture(dt);
- for(const u of units){
-  const enemy=nearestEnemy(u);if(!enemy)continue;
-  const dx=enemy.lng-u.lng,dy=enemy.lat-u.lat,d=Math.hypot(dx,dy);
-  if(d>.0018){
-   const step=(u.type==='Tank'?.0008:.0011)*dt*speed;
-   u.lng+=dx/d*Math.min(step,d);u.lat+=dy/d*Math.min(step,d);
-  }else{
-   enemy.hp-= (u.type==='Tank'?5: u.type==='Infantry'?1:10)*dt*speed*2;
-   if(u.type==='Missile'||u.type==='FPV')u.hp=0;
-  }
- }
- units=units.filter(u=>u.hp>0);
- renderUnits();drawBattlefield();
- if(!units.some(u=>u.side==='red')||!units.some(u=>u.side==='blue')){running=false;$('war').textContent='Start War';$('status').textContent='Battle ended: one side has no remaining units.'}
-}
-map.on('click',e=>{
- const hp=selected==='Tank'?500:selected==='Infantry'?100:1;
- units.push({lat:e.latlng.lat,lng:e.latlng.lng,side:deploySide,type:selected,hp});
- renderUnits();drawBattlefield();$('status').textContent=units.filter(u=>u.side==='red').length+' red units, '+units.filter(u=>u.side==='blue').length+' blue units.';
-});
-document.querySelectorAll('.unit').forEach(b=>b.onclick=()=>{selected=b.dataset.unit;document.querySelectorAll('.unit').forEach(x=>x.classList.toggle('active',x===b))});
-$('side').onclick=()=>{deploySide=deploySide==='red'?'blue':'red';$('side').textContent='Deploy '+deploySide.toUpperCase();$('side').classList.toggle('active',deploySide==='red')};
-$('apply').onclick=()=>{drawCountries();$('status').textContent='Country overlays updated. Deploy forces in the battle area.'};
-$('war').onclick=()=>{
- if(!running){
-  if(!units.some(u=>u.side==='red')||!units.some(u=>u.side==='blue')){
-   $('status').textContent='Deploy at least one red and one blue unit first.';return;
-  }
-  battleAxis=makeBattleAxis();captureShift=Array(33).fill(0);running=true;
- }else{running=false;}
- $('war').textContent=running?'Pause War':'Start War';
- $('status').textContent=running?'War in progress. The frontline moves; captured sections turn blue or red.':'War paused.';
- drawBattlefield();
+fetch(mapUrl).then(r=>r.json()).then(g=>{features=g.features||[];paintMap();}).catch(()=>status.textContent='Could not load country outlines. Internet connection required.');
+document.getElementById('apply').onclick=()=>{
+ const a=document.getElementById('attacker').value,d=document.getElementById('defender').value;
+ if(!a||!d){status.textContent='Choose both an attacker and a defender first.';return}
+ if(a===d){status.textContent='Choose two different countries.';return}
+ selected={attacker:a,defender:d};paintMap();status.textContent='RED: '+a+' | BLUE: '+d+'. Draw the battle arena next.';
 };
-document.querySelectorAll('.speed').forEach(b=>b.onclick=()=>{speed=Number(b.dataset.speed);document.querySelectorAll('.speed').forEach(x=>x.classList.toggle('active',x===b))});
-$('clear').onclick=()=>{units=[];captureShift=Array(33).fill(0);battleAxis=null;renderUnits();territoryLayer.clearLayers();frontLayer.clearLayers();running=false;$('war').textContent='Start War';$('status').textContent='Units cleared.'};
-function loop(t){let dt=Math.min(.05,(t-last)/1000||0);last=t;if(running)tick(dt);requestAnimationFrame(loop)}requestAnimationFrame(loop);
-</script></body></html>
+function setDeploy(side){deploy=side;document.getElementById('red').classList.toggle('active',side==='red');document.getElementById('blue').classList.toggle('active',side==='blue');status.textContent='Tap the map to deploy '+side.toUpperCase()+' units.'}
+document.getElementById('red').onclick=()=>setDeploy('red');
+document.getElementById('blue').onclick=()=>setDeploy('blue');
+function drawArena(bounds){
+ if(arenaLayer)arenaLayer.remove();
+ arenaLayer=L.layerGroup([L.rectangle(bounds,{color:'#f5c84c',weight:3,dashArray:'8 7',fillColor:'#f5c84c',fillOpacity:.09})]).addTo(map);
+ const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
+ arena=turf.polygon([[[sw.lng,sw.lat],[ne.lng,sw.lat],[ne.lng,ne.lat],[sw.lng,ne.lat],[sw.lng,sw.lat]]]);
+}
+document.getElementById('arena').onclick=()=>{
+ if(!selected.attacker||!selected.defender){status.textContent='Apply two countries before drawing the battle arena.';return}
+ drawing=true;dragStart=null;if(dragRect){dragRect.remove();dragRect=null}if(arenaLayer){arenaLayer.remove();arenaLayer=null}arena=null;
+ status.textContent='Drag your finger across the map to mark the battle arena, then release.';
+ map.dragging.disable();
+};
+map.on('mousedown touchstart',e=>{
+ if(!drawing)return;
+ dragStart=e.latlng;
+ if(dragRect)dragRect.remove();
+ dragRect=L.rectangle([dragStart,dragStart],{color:'#f5c84c',weight:3,dashArray:'8 7',fillOpacity:.08}).addTo(map);
+});
+map.on('mousemove touchmove',e=>{
+ if(!drawing||!dragStart||!dragRect)return;
+ dragRect.setBounds(L.latLngBounds(dragStart,e.latlng));
+});
+map.on('mouseup touchend',e=>{
+ if(!drawing||!dragStart)return;
+ const ll=e.latlng||map.mouseEventToLatLng(e.originalEvent);
+ const bounds=L.latLngBounds(dragStart,ll);
+ if(dragRect){dragRect.remove();dragRect=null}
+ drawing=false;map.dragging.enable();
+ if(bounds.getNorthEast().distanceTo(bounds.getSouthWest())<500){dragStart=null;status.textContent='Arena too small. Drag a larger area.';return}
+ dragStart=null;drawArena(bounds);frontProgress=0;drawFrontline();
+ status.textContent='Battle arena set. Only this area can change ownership during the battle.';
+});
+document.getElementById('clearArena').onclick=()=>{arena=null;if(arenaLayer)arenaLayer.remove();arenaLayer=null;frontLayer.clearLayers();frontProgress=0;status.textContent='Battle arena cleared.'};
+function inside(ll){return arena&&turf.booleanPointInPolygon(turf.point([ll.lng,ll.lat]),arena)}
+function markerIcon(u){
+ const z=map.getZoom(),scale=z<=4?.48:z<=6?.62:z<=8?.8:1;
+ const size=Math.round(21*scale),show=z>=8;
+ const flag=u.side==='red'?'🔴':'🔵';
+ const symbol={Infantry:'♟',Tank:'▣',Missile:'➤',FPV:'✦',Artillery:'◉'}[u.type]||'•';
+ const hp=show?`<span class="hp"><i style="width:${Math.max(0,u.hp/u.max*100)}%"></i></span><span class="unit-name">${u.hp}/${u.max}</span>`:'';
+ return L.divIcon({className:'unit-icon',html:`<div class="unit-wrap"><span class="unit-disc ${u.side}" style="width:${size}px;height:${size}px;font-size:${Math.max(8,Math.round(12*scale))}px">${symbol}</span>${hp}</div>`,iconSize:[Math.max(12,size),show?38:Math.max(12,size)],iconAnchor:[Math.max(6,size/2),Math.max(6,size/2)]});
+}
+function renderUnits(){units.forEach(u=>{if(!u.alive){if(u.marker)u.marker.remove();return}if(!u.marker)u.marker=L.marker([u.lat,u.lng],{icon:markerIcon(u),interactive:false}).addTo(map);else{u.marker.setLatLng([u.lat,u.lng]);u.marker.setIcon(markerIcon(u))}})}
+map.on('zoomend',renderUnits);
+function spawn(ll,side,type){
+ if(!selected.attacker||!selected.defender){status.textContent='Select and apply two countries first.';return}
+ const hp={Infantry:100,Tank:500,Missile:1,FPV:1,Artillery:250}[type];
+ const u={lat:ll.lat,lng:ll.lng,side,type,hp,max:hp,alive:true,marker:null};
+ units.push(u);renderUnits();status.textContent=side.toUpperCase()+' '+type+' deployed.';
+}
+map.on('click',e=>{if(drawing)return;if(!running)spawn(e.latlng,deploy,document.getElementById('unit').value)});
+document.getElementById('clear').onclick=()=>{units.forEach(u=>u.marker&&u.marker.remove());units=[];renderUnits();status.textContent='All units cleared.'};
+function enemyOf(u){let best=null,bd=Infinity;for(const v of units){if(!v.alive||v.side===u.side||v.type==='Missile'||v.type==='FPV')continue;const d=Math.hypot((v.lat-u.lat)*111,(v.lng-u.lng)*90);if(d<bd){bd=d;best=v}}return best}
+function updateFrontline(dt){
+ if(!arena)return;
+ const red=units.some(u=>u.alive&&u.side==='red'&&['Infantry','Tank','Artillery'].includes(u.type)&&inside({lat:u.lat,lng:u.lng}));
+ const blue=units.some(u=>u.alive&&u.side==='blue'&&['Infantry','Tank','Artillery'].includes(u.type)&&inside({lat:u.lat,lng:u.lng}));
+ if(red!==blue)frontProgress=Math.max(-.45,Math.min(.45,frontProgress+(blue?1:-1)*dt*.012));
+ drawFrontline();
+}
+function drawFrontline(){
+ frontLayer.clearLayers();if(!arena)return;
+ const ring=arena.geometry.coordinates[0],sw=[ring[0][0],ring[0][1]],ne=[ring[2][0],ring[2][1]];
+ const mid=(sw[1]+ne[1])/2+frontProgress*(ne[1]-sw[1]);
+ const line=[[sw[0],mid],[ne[0],mid]].map(p=>[p[1],p[0]]);
+ L.polyline(line,{color:'#fff',weight:3,dashArray:'8 8'}).addTo(frontLayer);
+ const fillColor=frontProgress>0?'#367fc5':frontProgress<0?'#c34c4c':null;
+ if(fillColor){
+  const bounds=frontProgress>0?[[mid,sw[0]],[ne[1],ne[0]]]:[[sw[1],sw[0]],[mid,ne[0]]];
+  L.rectangle(bounds,{color:fillColor,weight:0,fillColor:fillColor,fillOpacity:.17}).addTo(frontLayer);
+ }
+}
+function tick(dt){
+ const speed=+document.getElementById('speed').value;
+ const ground=units.filter(u=>u.alive&&['Infantry','Tank','Artillery'].includes(u.type));
+ for(const u of ground){
+  const e=enemyOf(u);if(!e)continue;
+  const dx=(e.lng-u.lng)*90,dy=(e.lat-u.lat)*111,d=Math.hypot(dx,dy);
+  const contact=(u.type==='Tank'?.018:.012)+(e.type==='Tank'?.018:.012);
+  if(d<=contact){
+   const damage=u.type==='Infantry'?1:u.type==='Tank'?5:2;
+   e.hp-=damage*dt*speed;
+   if(e.hp<=0){e.alive=false;if(e.marker)e.marker.remove()}
+  }else{
+   const step=Math.min(d-contact,.12*dt*speed);
+   u.lng+=dx/d*step/90;u.lat+=dy/d*step/111;
+  }
+ }
+ for(const u of units.filter(v=>v.alive&&['Missile','FPV'].includes(v.type))){
+  const e=enemyOf(u);if(!e){u.alive=false;continue}
+  const dx=(e.lng-u.lng)*90,dy=(e.lat-u.lat)*111,d=Math.hypot(dx,dy);
+  if(d<.35){e.hp-=10;u.alive=false;if(e.hp<=0){e.alive=false;if(e.marker)e.marker.remove()}}
+  else if(d>0){const step=Math.min(d,.8*dt*speed);u.lng+=dx/d*step/90;u.lat+=dy/d*step/111}
+ }
+ updateFrontline(dt*speed);renderUnits();
+}
+function loop(t){if(!running)return;const dt=Math.min((t-last)/1000,.08);last=t;tick(dt);raf=requestAnimationFrame(loop)}
+document.getElementById('war').onclick=()=>{
+ if(!arena){status.textContent='Draw a battle arena before starting the war.';return}
+ if(!units.some(u=>u.alive&&u.side==='red')||!units.some(u=>u.alive&&u.side==='blue')){status.textContent='Deploy at least one RED and one BLUE unit first.';return}
+ running=!running;document.getElementById('war').textContent=running?'Pause War':'Start War';
+ status.textContent=running?'War running. Ground combat is contact-based.':'War paused.';
+ if(running){last=performance.now();raf=requestAnimationFrame(loop)}else cancelAnimationFrame(raf);
+};
+</script>
+</body></html>
